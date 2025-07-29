@@ -3,31 +3,11 @@ name: Run Scandium Script
 on:
   workflow_dispatch:  # Only manual trigger of the workflow
     inputs:
-      max_attempts:
-        description: 'Maximum polling attempts (default: 30)'
+      starting_url:
+        description: 'Starting URL for the tests'
         required: false
-        default: '30'
         type: string
-      retry_count:
-        description: 'Number of retry attempts (default: 0)'
-        required: false
-        default: '0'
-        type: string
-      wait_period:
-        description: 'Seconds between polling attempts (default: 120)'
-        required: false
-        default: '120'
-        type: string
-      browser:
-        description: 'Browser to use (chrome, firefox, edge)'
-        required: false
-        default: 'chrome'
-        type: string
-      STARTING_URL:
-        description: 'Starting URL'
-        required: false
-        default: 'https://www.google.com'
-        type: string
+        default: ''
 
 jobs:
   execute-scandium-script:
@@ -37,14 +17,14 @@ jobs:
       API_TOKEN: ${{ secrets.API_TOKEN }}
       PROJECT_ID: ${{ secrets.PROJECT_ID }}
       HUB_URL: ${{ secrets.HUB_URL }}
-      STARTING_URL: ${{ inputs.STARTING_URL }}
+      STARTING_URL: ${{ inputs.starting_url }}
       SUITE_ID: ${{ secrets.SUITE_ID }}
-      BROWSER: ${{ inputs.browser }}
+      BROWSER: chrome
       SCREENSHOT: true
       VARIABLES: '{}'
-      RETRY: ${{ inputs.retry_count }}
-      MAX_ATTEMPTS: ${{ inputs.max_attempts }}
-      WAIT_PERIOD: ${{ inputs.wait_period }}
+      RETRY: 0
+      MAX_ATTEMPTS: 30
+      WAIT_PERIOD: 120
 
     steps:
       - name: Checkout Repository
