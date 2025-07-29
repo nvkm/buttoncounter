@@ -1,10 +1,28 @@
 name: Run Scandium Script
 
 on:
-  workflow_dispatch:  # Allows manual trigger of the workflow
-  push:               # Runs on push to a specific branch
-    branches:
-      - main          # Change this to your desired branch
+  workflow_dispatch:  # Only manual trigger of the workflow
+    inputs:
+      max_attempts:
+        description: 'Maximum polling attempts (default: 30)'
+        required: false
+        default: '30'
+        type: string
+      retry_count:
+        description: 'Number of retry attempts (default: 0)'
+        required: false
+        default: '0'
+        type: string
+      wait_period:
+        description: 'Seconds between polling attempts (default: 120)'
+        required: false
+        default: '120'
+        type: string
+      browser:
+        description: 'Browser to use (chrome, firefox, edge)'
+        required: false
+        default: 'chrome'
+        type: string
 
 jobs:
   execute-scandium-script:
@@ -16,12 +34,12 @@ jobs:
       HUB_URL: ${{ secrets.HUB_URL }}
       STARTING_URL: ${{ secrets.STARTING_URL }}
       SUITE_ID: ${{ secrets.SUITE_ID }}
-      BROWSER: chrome
+      BROWSER: ${{ inputs.browser }}
       SCREENSHOT: true
       VARIABLES: '{}'
-      RETRY: 0
-      MAX_ATTEMPTS: 30
-      WAIT_PERIOD: 120
+      RETRY: ${{ inputs.retry_count }}
+      MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+      WAIT_PERIOD: ${{ inputs.wait_period }}
 
     steps:
       - name: Checkout Repository
