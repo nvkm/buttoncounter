@@ -23,7 +23,7 @@ on:
         required: false
         default: 'chrome'
         type: string
-      starting_url:
+      STARTING_URL:
         description: 'Starting URL'
         required: false
         default: 'https://www.google.com'
@@ -37,7 +37,7 @@ jobs:
       API_TOKEN: ${{ secrets.API_TOKEN }}
       PROJECT_ID: ${{ secrets.PROJECT_ID }}
       HUB_URL: ${{ secrets.HUB_URL }}
-      STARTING_URL: ${{ inputs.starting_url }}
+      STARTING_URL: ${{ inputs.STARTING_URL }}
       SUITE_ID: ${{ secrets.SUITE_ID }}
       BROWSER: ${{ inputs.browser }}
       SCREENSHOT: true
