@@ -1,0 +1,43 @@
+name: Run Scandium Script
+
+on:
+  workflow_dispatch:  # Allows manual trigger of the workflow
+  push:               # Runs on push to a specific branch
+    branches:
+      - main          # Change this to your desired branch
+
+jobs:
+  execute-scandium-script:
+    runs-on: ubuntu-latest
+
+    env:
+      API_TOKEN: ${{ secrets.API_TOKEN }}
+      PROJECT_ID: ${{ secrets.PROJECT_ID }}
+      HUB_URL: ${{ secrets.HUB_URL }}
+      STARTING_URL: ${{ secrets.STARTING_URL }}
+      SUITE_ID: ${{ secrets.SUITE_ID }}
+      BROWSER: chrome
+      SCREENSHOT: true
+      VARIABLES: '{}'
+      RETRY: 0
+      MAX_ATTEMPTS: 30
+      WAIT_PERIOD: 120
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Download the Scandium Bash Script
+        run: |
+          SCRIPT_URL="https://raw.githubusercontent.com/GetScandium/files/refs/heads/main/scandium_script.sh"
+          curl -o scandium_script.sh $SCRIPT_URL
+          chmod +x scandium_script.sh
+
+      - name: Run the Scandium Script
+        run: |
+          ./scandium_script.sh 
