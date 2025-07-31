@@ -57,27 +57,10 @@ jobs:
             exit 1
           fi
 
-      # - name: Print Scandium Script Content
-      #   run: |
-      #     echo "=== SCANDIUM SCRIPT CONTENT ==="
-      #     cat scandium_script.sh
-      #     echo "=== END OF SCANDIUM SCRIPT ==="
-
       - name: Run the Scandium Script
         run: |
           ./scandium_script.sh 2>&1 | tee scandium_output.log
         id: run-tests
-
-      - name: Print Entire Log Output
-        if: always()
-        run: |
-          echo "=== ENTIRE SCANDIUM SCRIPT LOG OUTPUT ==="
-          if [ -f "scandium_output.log" ]; then
-            cat scandium_output.log
-          else
-            echo "No log file found"
-          fi
-          echo "=== END OF LOG OUTPUT ==="
 
       - name: Save Log Output as Artifact
         if: always()
@@ -86,7 +69,7 @@ jobs:
           name: scandium-logs
           path: scandium_output.log
 
-      - name: Prepare Email Content
+      - name: Generate Enhanced Email Content from Final Results
         if: always()
         run: |
           # Read test result
@@ -96,123 +79,237 @@ jobs:
             TEST_RESULT="UNKNOWN"
           fi
           
-          # Create email subject and body
-          if [ "$TEST_RESULT" = "PASSED" ]; then
-            SUBJECT="✅ Scandium Test Results - PASSED"
-            BODY="All tests have passed successfully!"
-            COLOR="green"
-          elif [ "$TEST_RESULT" = "FAILED" ]; then
-            SUBJECT="❌ Scandium Test Results - FAILED"
-            BODY="One or more tests have failed. Check the logs for details."
-            COLOR="red"
-          elif [ "$TEST_RESULT" = "TIMEOUT" ]; then
-            SUBJECT="⏰ Scandium Test Results - TIMEOUT"
-            BODY="Tests did not complete within the timeout period."
-            COLOR="orange"
-          else
-            SUBJECT="❓ Scandium Test Results - UNKNOWN"
-            BODY="Test results are unknown. Check the logs for details."
-            COLOR="gray"
-          fi
+          # Initialize variables
+          EXECUTION_DETAILS=""
+          TEST_SUMMARY=""
+          FAILED_STEPS=""
+          DURATION_INFO=""
+          SCREENSHOT_LINKS=""
           
-          # Save email content
-          echo "$SUBJECT" > email_subject.txt
-          echo "$BODY" > email_body.txt
-          echo "$COLOR" > email_color.txt
-          
-          # Create detailed report
-          echo "=== SCANDIUM TEST REPORT ===" > test_report.txt
-          echo "Result: $TEST_RESULT" >> test_report.txt
-          echo "Environment: ${{ inputs.environment }}" >> test_report.txt
-          echo "Repository: ${{ github.repository }}" >> test_report.txt
-          echo "Branch: ${{ github.ref_name }}" >> test_report.txt
-          echo "Triggered by: ${{ github.actor }}" >> test_report.txt
-          echo "Execution Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> test_report.txt
-          echo "" >> test_report.txt
-          
-          # Add execution results if available
+          # Process execution result files to get detailed information
           if ls execution_result_*.json 1> /dev/null 2>&1; then
-            echo "=== EXECUTION DETAILS ===" >> test_report.txt
             for result_file in execution_result_*.json; do
-              echo "File: $result_file" >> test_report.txt
-              cat "$result_file" | jq '.' >> test_report.txt
-              echo "" >> test_report.txt
+              echo "Processing $result_file for email content..."
+              
+              # Extract key information from the final result
+              SUITE_NAME=$(cat "$result_file" | jq -r '.data.name // "Unknown Suite"')
+              EXECUTION_STATUS=$(cat "$result_file" | jq -r '.data.status // "unknown"')
+              RUNNING_STATUS=$(cat "$result_file" | jq -r '.data.running_status // "unknown"')
+              DURATION=$(cat "$result_file" | jq -r '.data.duration // 0')
+              BROWSER_VERSION=$(cat "$result_file" | jq -r '.data.browser_version // "Unknown"')
+              OS_INFO=$(cat "$result_file" | jq -r '.data.operating_system // "Unknown"')
+              
+              # Convert duration from milliseconds to human readable
+              DURATION_SECONDS=$((DURATION / 1000))
+              DURATION_MINUTES=$((DURATION_SECONDS / 60))
+              REMAINING_SECONDS=$((DURATION_SECONDS % 60))
+              
+              if [ $DURATION_MINUTES -gt 0 ]; then
+                DURATION_FORMATTED="${DURATION_MINUTES}m ${REMAINING_SECONDS}s"
+              else
+                DURATION_FORMATTED="${DURATION_SECONDS}s"
+              fi
+              
+              DURATION_INFO="<strong>Execution Time:</strong> $DURATION_FORMATTED<br>"
+              
+              # Get summary if available
+              if [ "$(cat "$result_file" | jq -r '.data.summary // null')" != "null" ]; then
+                SUMMARY_JSON=$(cat "$result_file" | jq -r '.data.summary')
+                TOTAL_TESTS=$(echo "$SUMMARY_JSON" | jq -r '.total // 0')
+                PASSED_TESTS=$(echo "$SUMMARY_JSON" | jq -r '.passed // 0')
+                FAILED_TESTS=$(echo "$SUMMARY_JSON" | jq -r '.failed // 0')
+                
+                TEST_SUMMARY="<strong>Test Summary:</strong> $TOTAL_TESTS total, $PASSED_TESTS passed, $FAILED_TESTS failed<br>"
+              fi
+              
+              # Process individual test results for failures
+              if [ "$(cat "$result_file" | jq -r '.data.results // null')" != "null" ]; then
+                cat "$result_file" | jq -c '.data.results[]' | while read -r test_result; do
+                  TEST_NAME=$(echo "$test_result" | jq -r '.name // "Unknown Test"')
+                  TEST_STATUS=$(echo "$test_result" | jq -r '.status // "unknown"')
+                  TEST_REASON=$(echo "$test_result" | jq -r '.reason // ""')
+                  
+                  if [ "$TEST_STATUS" = "error" ] || [ "$TEST_STATUS" = "failed" ]; then
+                    echo "<div style='margin: 10px 0; padding: 10px; background: #ffebee; border-left: 4px solid #f44336;'>" >> failed_tests.html
+                    echo "<strong>❌ Failed Test:</strong> $TEST_NAME<br>" >> failed_tests.html
+                    if [ -n "$TEST_REASON" ] && [ "$TEST_REASON" != "null" ]; then
+                      echo "<strong>Reason:</strong> $TEST_REASON<br>" >> failed_tests.html
+                    fi
+                    
+                    # Process test steps for detailed failure info
+                    if [ "$(echo "$test_result" | jq -r '.test_runs // null')" != "null" ]; then
+                      echo "$test_result" | jq -c '.test_runs[]' | while read -r step; do
+                        STEP_STATUS=$(echo "$step" | jq -r '.status // "unknown"')
+                        STEP_TITLE=$(echo "$step" | jq -r '.title // "Unknown Step"')
+                        STEP_ERROR=$(echo "$step" | jq -r '.error // ""')
+                        SCREENSHOT_URL=$(echo "$step" | jq -r '.result_screenshot.imageData // ""')
+                        
+                        if [ "$STEP_STATUS" = "error" ] || [ "$STEP_STATUS" = "failed" ]; then
+                          echo "&nbsp;&nbsp;🔴 <strong>Failed Step:</strong> $STEP_TITLE<br>" >> failed_tests.html
+                          if [ -n "$STEP_ERROR" ] && [ "$STEP_ERROR" != "null" ]; then
+                            echo "&nbsp;&nbsp;<strong>Error:</strong> $STEP_ERROR<br>" >> failed_tests.html
+                          fi
+                          if [ -n "$SCREENSHOT_URL" ] && [ "$SCREENSHOT_URL" != "null" ] && [ "$SCREENSHOT_URL" != "" ]; then
+                            echo "&nbsp;&nbsp;📷 <a href='$SCREENSHOT_URL' style='color: #1976d2;'>View Screenshot</a><br>" >> failed_tests.html
+                          fi
+                        fi
+                      done
+                    fi
+                    echo "</div>" >> failed_tests.html
+                  fi
+                done
+              fi
+              
+              # Build execution details
+              EXECUTION_DETAILS="
+              <strong>Suite:</strong> $SUITE_NAME<br>
+              <strong>Status:</strong> $EXECUTION_STATUS<br>
+              <strong>Browser:</strong> Chrome $BROWSER_VERSION<br>
+              <strong>OS:</strong> $OS_INFO<br>
+              $DURATION_INFO
+              $TEST_SUMMARY
+              "
             done
           fi
+          
+          # Read failed tests if file exists
+          if [ -f "failed_tests.html" ]; then
+            FAILED_STEPS=$(cat failed_tests.html)
+          fi
+          
+          # Determine email subject and styling based on result
+          if [ "$TEST_RESULT" = "PASSED" ]; then
+            SUBJECT="✅ Scandium Tests PASSED - ${{ inputs.environment }} Environment"
+            BODY_MESSAGE="All tests completed successfully! 🎉"
+            HEADER_COLOR="#4caf50"
+            BG_COLOR="#e8f5e8"
+          elif [ "$TEST_RESULT" = "FAILED" ]; then
+            SUBJECT="❌ Scandium Tests FAILED - ${{ inputs.environment }} Environment"
+            BODY_MESSAGE="One or more tests have failed. Please review the details below."
+            HEADER_COLOR="#f44336"
+            BG_COLOR="#ffebee"
+          elif [ "$TEST_RESULT" = "TIMEOUT" ]; then
+            SUBJECT="⏰ Scandium Tests TIMEOUT - ${{ inputs.environment }} Environment"
+            BODY_MESSAGE="Tests did not complete within the specified timeout period."
+            HEADER_COLOR="#ff9800"
+            BG_COLOR="#fff3e0"
+          else
+            SUBJECT="❓ Scandium Tests UNKNOWN - ${{ inputs.environment }} Environment"
+            BODY_MESSAGE="Test results are in an unknown state. Please check the logs."
+            HEADER_COLOR="#9e9e9e"
+            BG_COLOR="#f5f5f5"
+          fi
+          
+          # Create comprehensive HTML email content
+          cat > email_content.html << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Scandium Test Results</title>
+          </head>
+          <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; background-color: #f8f9fa;">
+            <div style="max-width: 700px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+              
+              <!-- Header -->
+              <div style="background: $HEADER_COLOR; color: white; padding: 25px; text-align: center;">
+                <h1 style="margin: 0; font-size: 24px; font-weight: 600;">Scandium Test Results</h1>
+                <p style="margin: 8px 0 0 0; font-size: 16px; opacity: 0.9;">${{ inputs.environment }} Environment</p>
+              </div>
+              
+              <!-- Status Banner -->
+              <div style="background: $BG_COLOR; padding: 20px; text-align: center; border-bottom: 1px solid #e0e0e0;">
+                <h2 style="margin: 0; color: $HEADER_COLOR; font-size: 20px;">$BODY_MESSAGE</h2>
+              </div>
+              
+              <!-- Execution Details -->
+              <div style="padding: 25px;">
+                <h3 style="color: #333; margin: 0 0 15px 0; font-size: 18px; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px;">📊 Execution Details</h3>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                  $EXECUTION_DETAILS
+                  <strong>Environment:</strong> ${{ inputs.environment }}<br>
+                  <strong>Repository:</strong> ${{ github.repository }}<br>
+                  <strong>Branch:</strong> ${{ github.ref_name }}<br>
+                  <strong>Triggered by:</strong> ${{ github.actor }}<br>
+                  <strong>Execution Time:</strong> $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+                </div>
+                
+                <!-- Failed Tests Section (only show if there are failures) -->
+                EOF
+          
+          if [ -n "$FAILED_STEPS" ]; then
+            cat >> email_content.html << EOF
+                <h3 style="color: #f44336; margin: 20px 0 15px 0; font-size: 18px; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px;">🚨 Failed Tests</h3>
+                $FAILED_STEPS
+          EOF
+          fi
+          
+          cat >> email_content.html << EOF
+                
+                <!-- Action Links -->
+                <div style="margin-top: 30px; padding: 20px; background: #e3f2fd; border-radius: 8px; text-align: center;">
+                  <h3 style="color: #1976d2; margin: 0 0 15px 0;">Quick Actions</h3>
+                  <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" 
+                     style="display: inline-block; background: #1976d2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: 500;">
+                    🔗 View Workflow Run
+                  </a>
+                  <a href="https://github.com/${{ github.repository }}" 
+                     style="display: inline-block; background: #424242; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: 500;">
+                    📁 View Repository
+                  </a>
+                </div>
+              </div>
+              
+              <!-- Footer -->
+              <div style="background: #f5f5f5; padding: 15px; text-align: center; font-size: 14px; color: #666; border-top: 1px solid #e0e0e0;">
+                <p style="margin: 0;">This email was automatically generated by GitHub Actions</p>
+                <p style="margin: 5px 0 0 0;">$(date -u +"%A, %B %d, %Y at %H:%M:%S UTC")</p>
+              </div>
+              
+            </div>
+          </body>
+          </html>
+          EOF
+          
+          # Save email subject
+          echo "$SUBJECT" > email_subject.txt
+          
+          echo "✅ Enhanced email content generated successfully"
 
-      - name: Send Scandium Results via Gmail SMTP
+      - name: Send Enhanced Email via Gmail SMTP
         run: |
           GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}
           GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
           EMAIL_TO=${{ secrets.EMAIL_TO }}
 
-          # Read Scandium result
-          if [ -f "test_result.txt" ]; then
-            TEST_RESULT=$(cat test_result.txt)
-          else
-            TEST_RESULT="UNKNOWN"
-          fi
+          # Read the subject and HTML content
+          SUBJECT=$(cat email_subject.txt)
+          HTML_CONTENT=$(cat email_content.html)
 
-          # Prepare subject/body/color
-          if [ "$TEST_RESULT" = "PASSED" ]; then
-            SUBJECT="✅ Scandium Test Results - PASSED"
-            BODY="All tests have passed successfully!"
-            COLOR="green"
-          elif [ "$TEST_RESULT" = "FAILED" ]; then
-            SUBJECT="❌ Scandium Test Results - FAILED"
-            BODY="One or more tests have failed. Check the logs for details."
-            COLOR="red"
-          elif [ "$TEST_RESULT" = "TIMEOUT" ]; then
-            SUBJECT="⏰ Scandium Test Results - TIMEOUT"
-            BODY="Tests did not complete within the timeout period."
-            COLOR="orange"
-          else
-            SUBJECT="❓ Scandium Test Results - UNKNOWN"
-            BODY="Test results are unknown. Check the logs for details."
-            COLOR="gray"
-          fi
+          # Create email message with proper headers
+          cat > email_message.txt << EOF
+          From: $GMAIL_USERNAME
+          To: $EMAIL_TO
+          Subject: $SUBJECT
+          MIME-Version: 1.0
+          Content-Type: text/html; charset=UTF-8
+          Content-Transfer-Encoding: 8bit
 
-          # Optionally, include a summary from test_report.txt
-          if [ -f "test_report.txt" ]; then
-            REPORT_CONTENT=$(cat test_report.txt)
-          else
-            REPORT_CONTENT="No detailed report found."
-          fi
+          $HTML_CONTENT
+          EOF
 
-          # Prepare HTML content
-          HTML_CONTENT="
-          <html>
-          <body style='font-family: Arial, sans-serif; padding: 20px;'>
-            <div style='max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; padding: 20px;'>
-              <h2 style='color: $COLOR; margin-top: 0;'>$SUBJECT</h2>
-              <p><strong>$BODY</strong></p>
-              <hr style='border: 1px solid #eee; margin: 20px 0;'>
-              <h3 style='color: #333;'>Test Report:</h3>
-              <pre style='color: #555; background: #f9f9f9; padding: 10px; border-radius: 4px; font-size: 13px;'>$REPORT_CONTENT</pre>
-              <hr style='border: 1px solid #eee; margin: 20px 0;'>
-              <p style='color: #666; font-size: 14px;'>
-                <a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}' style='color: #0078d4;'>View Workflow Run</a>
-              </p>
-            </div>
-          </body>
-          </html>
-          "
-
-          echo "From: $GMAIL_USERNAME" > email_message.txt
-          echo "To: $EMAIL_TO" >> email_message.txt
-          echo "Subject: $SUBJECT" >> email_message.txt
-          echo "MIME-Version: 1.0" >> email_message.txt
-          echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
-          echo "" >> email_message.txt
-          echo "$HTML_CONTENT" >> email_message.txt
+          echo "📧 Sending enhanced email with detailed test results..."
 
           # Handle multiple recipients
           IFS=',' read -ra ADDR <<< "$EMAIL_TO"
           RCPT_ARGS=""
           for RECIPIENT in "${ADDR[@]}"; do
+            RECIPIENT=$(echo "$RECIPIENT" | xargs)  # Trim whitespace
             RCPT_ARGS="$RCPT_ARGS --mail-rcpt $RECIPIENT"
           done
 
+          # Send email using curl
           eval curl -v --mail-from "$GMAIL_USERNAME" \
                $RCPT_ARGS \
                --upload-file email_message.txt \
@@ -221,19 +318,16 @@ jobs:
                smtp://smtp.gmail.com:587
 
           if [ $? -eq 0 ]; then
-            echo "✅ Email sent successfully from Gmail!"
+            echo "✅ Enhanced email sent successfully!"
+            echo "📋 Email included detailed test results, failure analysis, and screenshots"
           else
-            echo "❌ Failed to send email from Gmail."
-            echo "See: https://support.google.com/accounts/answer/185833"
+            echo "❌ Failed to send email"
+            echo "💡 Check your Gmail app password and SMTP settings"
+            echo "📖 See: https://support.google.com/accounts/answer/185833"
           fi
 
-      - name: Save Email Content as Artifact
+      - name: Cleanup Temporary Files
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: email-notifications
-          path: |
-            email_notification.html
-            email_subject.txt
-            test_report.txt
-            execution_result_*.json
+        run: |
+          rm -f email_content.html email_subject.txt email_message.txt failed_tests.html
+          echo "🧹 Temporary email files cleaned up"
