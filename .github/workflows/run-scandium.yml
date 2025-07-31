@@ -8,6 +8,13 @@ on:
         required: false
         type: string
         default: ''
+      environment:
+        description: 'Select the test environment to run'
+        required: true
+        type: choice
+        options:
+          - Testing
+          - Production
 
 jobs:
   execute-scandium-script:
@@ -18,13 +25,12 @@ jobs:
       PROJECT_ID: ${{ secrets.PROJECT_ID }}
       HUB_URL: ${{ secrets.HUB_URL }}
       STARTING_URL: ${{ inputs.starting_url }}
-      SUITE_ID: ${{ secrets.SUITE_ID }}
       BROWSER: chrome
       SCREENSHOT: true
       VARIABLES: '{}'
       RETRY: 0
       MAX_ATTEMPTS: 30
-      WAIT_PERIOD: 120
+      WAIT_PERIOD: 3
 
     steps:
       - name: Checkout Repository
@@ -41,111 +47,44 @@ jobs:
           curl -o scandium_script.sh $SCRIPT_URL
           chmod +x scandium_script.sh
 
+      - name: Map Environment to Suite ID
+        run: |
+          if [ "${{ inputs.environment }}" = "Testing" ]; then
+            echo "SUITE_ID=9f851856-fee4-4030-8247-06257c174f42" >> $GITHUB_ENV
+            echo "Selected Testing environment with suite ID: 9f851856-fee4-4030-8247-06257c174f42"
+          elif [ "${{ inputs.environment }}" = "Production" ]; then
+            echo "SUITE_ID=9f810514-576d-41b4-bfd8-f832ae831cf9" >> $GITHUB_ENV
+            echo "Selected Production environment with suite ID: 9f810514-576d-41b4-bfd8-f832ae831cf9"
+          else
+            echo "Error: Invalid environment selected"
+            exit 1
+          fi
+
+      - name: Print Scandium Script Content
+        run: |
+          echo "=== SCANDIUM SCRIPT CONTENT ==="
+          cat scandium_script.sh
+          echo "=== END OF SCANDIUM SCRIPT ==="
+
       - name: Run the Scandium Script
         run: |
           ./scandium_script.sh 2>&1 | tee scandium_output.log
         id: run-tests
 
-      - name: Extract Test Results
+      - name: Print Entire Log Output
         if: always()
         run: |
-          # Try to extract the final JSON response from the logs
+          echo "=== ENTIRE SCANDIUM SCRIPT LOG OUTPUT ==="
           if [ -f "scandium_output.log" ]; then
-            # Look for the last JSON response in the logs
-            grep -o 'Raw response for execution ID.*: {.*}' scandium_output.log | tail -1 | sed 's/.*Raw response for execution ID.*: //' > scandium_results.json || echo '{"error": "No results found"}' > scandium_results.json
+            cat scandium_output.log
           else
-            echo '{"error": "No output log found"}' > scandium_results.json
+            echo "No log file found"
           fi
+          echo "=== END OF LOG OUTPUT ==="
 
-      - name: Send Teams Notification
+      - name: Save Log Output as Artifact
         if: always()
-        run: |
-          # Get the workflow status and test results
-          if [ "${{ job.status }}" == "success" ]; then
-            STATUS="✅ PASSED"
-            COLOR="00FF00"
-            SUMMARY="All tests passed successfully!"
-          else
-            STATUS="❌ FAILED"
-            COLOR="FF0000"
-            
-            # Try to extract test failure details from logs
-            if [ -f "scandium_results.json" ]; then
-              FAILURE_REASON=$(jq -r '.data.results[0].reason // "Unknown error"' scandium_results.json 2>/dev/null || echo "Unknown error")
-              TEST_NAME=$(jq -r '.data.results[0].name // "Unknown test"' scandium_results.json 2>/dev/null || echo "Unknown test")
-              SUMMARY="Test: $TEST_NAME - Reason: $FAILURE_REASON"
-            else
-              SUMMARY="Tests failed - check logs for details"
-            fi
-          fi
-          
-          # Get execution time
-          EXECUTION_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          
-          # Create Teams message
-          MESSAGE='{
-            "type": "message",
-            "attachments": [{
-              "contentType": "application/vnd.microsoft.card.adaptive",
-              "content": {
-                "type": "AdaptiveCard",
-                "version": "1.0",
-                "body": [
-                  {
-                    "type": "TextBlock",
-                    "text": "🧪 Scandium Test Results",
-                    "weight": "Bolder",
-                    "size": "Large"
-                  },
-                  {
-                    "type": "TextBlock",
-                    "text": "Status: '$STATUS'",
-                    "color": "'$COLOR'",
-                    "weight": "Bolder"
-                  },
-                  {
-                    "type": "TextBlock",
-                    "text": "'$SUMMARY'",
-                    "wrap": true
-                  },
-                  {
-                    "type": "FactSet",
-                    "facts": [
-                      {
-                        "title": "Repository:",
-                        "value": "${{ github.repository }}"
-                      },
-                      {
-                        "title": "Branch:",
-                        "value": "${{ github.ref_name }}"
-                      },
-                      {
-                        "title": "Triggered by:",
-                        "value": "${{ github.actor }}"
-                      },
-                      # {
-                      #   "title": "Starting URL:",
-                      #   "value": "${{ inputs.starting_url }}"
-                      # },
-                      {
-                        "title": "Execution Time:",
-                        "value": "'$EXECUTION_TIME'"
-                      }
-                    ]
-                  }
-                ],
-                "actions": [
-                  {
-                    "type": "Action.OpenUrl",
-                    "title": "📋 View Detailed Logs",
-                    "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  }
-                ]
-              }
-            }]
-          }'
-          
-          # Send to Teams
-          curl -H "Content-Type: application/json" \
-               -d "$MESSAGE" \
-               "${{ secrets.TEAMS_WEBHOOK_URL }}" 
+        uses: actions/upload-artifact@v3
+        with:
+          name: scandium-logs
+          path: scandium_output.log
