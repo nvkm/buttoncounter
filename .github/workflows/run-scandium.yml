@@ -64,10 +64,10 @@ jobs:
 
       - name: Send Scandium Result Email
         run: |
-          GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}
-          GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
-          EMAIL_FROM=${{ secrets.GMAIL_USERNAME }}
-          EMAIL_TO=${{ secrets.EMAIL_TO }}
+          GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
+          GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
+          EMAIL_FROM="${{ secrets.GMAIL_USERNAME }}"
+          EMAIL_TO="${{ secrets.EMAIL_TO }}"
           SUBJECT="Scandium Test Result - ${{ inputs.environment }}"
           BOUNDARY="ZZ_$(date +%s)_ZZ"
 
