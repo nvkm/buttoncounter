@@ -64,74 +64,69 @@ jobs:
 
       - name: Send Scandium Result Email
         run: |
-          GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
-          GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
-          EMAIL_FROM="${{ secrets.GMAIL_USERNAME }}"
-          EMAIL_TO="${{ secrets.EMAIL_TO }}"
+          GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_FROM=${{ secrets.GMAIL_USERNAME }}
+          EMAIL_TO=${{ secrets.EMAIL_TO }}
           SUBJECT="Scandium Test Result - ${{ inputs.environment }}"
           BOUNDARY="ZZ_$(date +%s)_ZZ"
-
-          # Extract latest completed polling response JSON
+      
           FINAL_LINE=$(grep -oP 'Raw response for execution ID [^:]+: \K\{.*' scandium_output.log | tail -n 1)
-
+      
           if [ -z "$FINAL_LINE" ]; then
-            echo "No valid JSON found, sending fallback message."
-            echo "No test results available." > email_content.txt
+            echo "No test results available." > body.txt
           else
             echo "$FINAL_LINE" > parsed_result.json
-
-            # Prepare summary body
-            cat > body.txt <<EOF
-          $(jq -r '
-            "Hello,\n\nThe latest Scandium test run has completed with the following result:\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
-            "\n🧪 Test Suite: \(.data.name)" +
-            "\n📊 Status: \(.data.status | ascii_downcase | if . == "error" then "❌ ERROR" else . end)" +
-            "\n💻 Browser: \(.data.browser) \(.data.browser_version)" +
-            "\n🖥 OS: \(.data.operating_system) (\(.data.operating_system_version))" +
-            "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
-            "\n🔍 Test Case: \(.data.results[0].name)" +
-            "\n⏱ Duration: \((.data.results[0].duration / 1000.0) | tostring) seconds" +
-            "\n📈 Summary: \(.data.results[0].summary.passed) Passed / \(.data.results[0].summary.total) Total" +
-            "\n📉 Status: ❌ \(.data.results[0].status | ascii_upcase)" +
-            "\n🧾 Reason: \(.data.results[0].reason // "N/A")" +
-            "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
-            "\n📋 Step Breakdown:\n" +
-            (.data.results[0].test_runs | map(
-              "  \((.status == "error")? "❌" : "✅") \(.title) (\((.time_taken / 1000.0) | tostring)s)" +
-              (if .status == "error" then
-                "\n   ┗ Error: \(.error // "Unknown")" +
-                (if .result_screenshot.imageData then
-                  "\n   ┗ 📸 Screenshot: [View Screenshot](\(.result_screenshot.imageData))"
+      
+            jq -r '
+              "Hello,\n\nThe latest Scandium test run has completed with the following result:\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
+              "\n🧪 Test Suite: \(.data.name)" +
+              "\n📊 Status: \(.data.status | ascii_downcase | if . == "error" then "❌ ERROR" else . end)" +
+              "\n💻 Browser: \(.data.browser) \(.data.browser_version)" +
+              "\n🖥 OS: \(.data.operating_system) (\(.data.operating_system_version))" +
+              "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
+              "\n🔍 Test Case: \(.data.results[0].name)" +
+              "\n⏱ Duration: \((.data.results[0].duration / 1000.0) | tostring) seconds" +
+              "\n📈 Summary: \(.data.results[0].summary.passed) Passed / \(.data.results[0].summary.total) Total" +
+              "\n📉 Status: ❌ \(.data.results[0].status | ascii_upcase)" +
+              "\n🧾 Reason: \(.data.results[0].reason // "N/A")" +
+              "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
+              "\n📋 Step Breakdown:\n" +
+              (.data.results[0].test_runs | map(
+                "  \((.status == "error")? "❌" : "✅") \(.title) (\((.time_taken / 1000.0) | tostring)s)" +
+                (if .status == "error" then
+                  "\n   ┗ Error: \(.error // "Unknown")" +
+                  (if .result_screenshot.imageData then
+                    "\n   ┗ 📸 Screenshot: \(.result_screenshot.imageData)"
+                  else "" end)
                 else "" end)
-              else "" end)
-            ) | join("\n")) +
-            "\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\nThe complete execution log is attached with this email for further analysis.\n\nBest regards,\nScandium CI Bot"
-          ' parsed_result.json)
-          EOF
-
-                {
-                  echo "From: $EMAIL_FROM"
-                  echo "To: $EMAIL_TO"
-                  echo "Subject: $SUBJECT"
-                  echo "MIME-Version: 1.0"
-                  echo "Content-Type: multipart/mixed; boundary=\"$BOUNDARY\""
-                  echo
-                  echo "--$BOUNDARY"
-                  echo "Content-Type: text/plain; charset=UTF-8"
-                  echo "Content-Transfer-Encoding: 7bit"
-                  echo
-                  cat body.txt
-                  echo
-                  echo "--$BOUNDARY"
-                  echo "Content-Type: text/plain"
-                  echo "Content-Disposition: attachment; filename=\"scandium_output.log\""
-                  echo
-                  cat scandium_output.log
-                  echo
-                  echo "--$BOUNDARY--"
-                } > email_content.txt
-              fi
-
+              ) | join("\n")) +
+              "\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\nThe complete execution log is attached.\n\nBest regards,\nScandium CI Bot"
+            ' parsed_result.json > body.txt
+          fi
+      
+          {
+            echo "From: $EMAIL_FROM"
+            echo "To: $EMAIL_TO"
+            echo "Subject: $SUBJECT"
+            echo "MIME-Version: 1.0"
+            echo "Content-Type: multipart/mixed; boundary=\"$BOUNDARY\""
+            echo
+            echo "--$BOUNDARY"
+            echo "Content-Type: text/plain; charset=utf-8"
+            echo "Content-Transfer-Encoding: 7bit"
+            echo
+            cat body.txt
+            echo
+            echo "--$BOUNDARY"
+            echo "Content-Type: text/plain"
+            echo "Content-Disposition: attachment; filename=\"scandium_output.log\""
+            echo
+            cat scandium_output.log
+            echo
+            echo "--$BOUNDARY--"
+          } > email_content.txt
+      
           curl -s --ssl-reqd \
             --url smtp://smtp.gmail.com:587 \
             --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
