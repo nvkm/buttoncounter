@@ -50,6 +50,7 @@ jobs:
             COLOR="gray"
             TEST_RESULT="UNKNOWN"
           fi
+
           HTML_CONTENT="
           <html>
           <body style='font-family: Arial, sans-serif; padding: 20px;'>
@@ -77,67 +78,52 @@ jobs:
           </body>
           </html>
           "
+
           echo "$SUBJECT" > email_subject.txt
           echo "$BODY" > email_body.txt
           echo "$COLOR" > email_color.txt
           echo "$HTML_CONTENT" > email_notification.html
 
-      - name: Test Gmail SMTP Email
+      - name: Send Gmail Email to Multiple Recipients
         run: |
-          # === HARDCODED TEST VALUES ===
           GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
           GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
           EMAIL_TO="${{ secrets.EMAIL_TO }}"
 
           SUBJECT=$(cat email_subject.txt)
-          BODY=$(cat email_body.txt)
-          COLOR=$(cat email_color.txt)
           HTML_CONTENT=$(cat email_notification.html)
-          echo "Testing email sending from Gmail SMTP..."
-          echo "Subject: $SUBJECT"
-          echo "Test Type: Success Test"
-          
-          if [ -n "$GMAIL_USERNAME" ] && [ -n "$GMAIL_APP_PASSWORD" ] && [ -n "$EMAIL_TO" ]; then
-            echo "✅ Gmail SMTP configuration found. Attempting to send email..."
-            EMAIL_FROM="$GMAIL_USERNAME"
-            echo "From: $EMAIL_FROM" > email_message.txt
-            echo "To: $EMAIL_TO" >> email_message.txt
-            echo "Subject: $SUBJECT" >> email_message.txt
-            echo "MIME-Version: 1.0" >> email_message.txt
-            echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
-            echo "" >> email_message.txt
-            echo "$HTML_CONTENT" >> email_message.txt
-            echo "Email file created. Attempting to send via Gmail SMTP..."
-            curl -v --mail-from "$EMAIL_FROM" \
-                --mail-rcpt "$EMAIL_TO" \
-                --upload-file email_message.txt \
-                --ssl-reqd \
-                --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
-                smtp://smtp.gmail.com:587
-            if [ $? -eq 0 ]; then
-              echo "✅ Email sent successfully from Gmail!"
-            else
-              echo "❌ Failed to send email from Gmail."
-              echo "----------------------------------------"
-              echo "Possible causes:"
-              echo "- App Password not set up or incorrect."
-              echo "- 2-Step Verification not enabled on your Google account."
-              echo "- Gmail SMTP access not allowed."
-              echo "- Google may block sign-in from unknown locations (check your email for security alerts)."
-              echo "----------------------------------------"
-              echo "How to fix:"
-              echo "1. Enable 2-Step Verification on your Google account."
-              echo "2. Create an App Password for 'Mail'."
-              echo "3. Use the App Password as GMAIL_APP_PASSWORD."
-              echo "4. Make sure EMAIL_TO is a valid recipient."
-              echo "5. Check your Google account for security alerts."
-              echo "----------------------------------------"
-              echo "See: https://support.google.com/accounts/answer/185833"
-            fi
-          else
-            echo "⚠️ Gmail SMTP configuration not found."
-            echo "Please provide GMAIL_USERNAME, GMAIL_APP_PASSWORD, and EMAIL_TO at the top of this script."
+          EMAIL_FROM="$GMAIL_USERNAME"
+
+          echo "From: $EMAIL_FROM" > email_message.txt
+          echo "To: $EMAIL_TO" >> email_message.txt
+          if [ -n "$EMAIL_CC" ]; then
+            echo "Cc: $EMAIL_CC" >> email_message.txt
           fi
+          echo "Subject: $SUBJECT" >> email_message.txt
+          echo "MIME-Version: 1.0" >> email_message.txt
+          echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
+          echo "" >> email_message.txt
+          echo "$HTML_CONTENT" >> email_message.txt
+
+          # Build --mail-rcpt arguments
+          RCPT_ARGS=""
+          IFS=',' read -ra TO_LIST <<< "$EMAIL_TO"
+          for RECIPIENT in "${TO_LIST[@]}"; do
+            RCPT_ARGS+=" --mail-rcpt \"$RECIPIENT\""
+          done
+
+          IFS=',' read -ra CC_LIST <<< "$EMAIL_CC"
+          for RECIPIENT in "${CC_LIST[@]}"; do
+            RCPT_ARGS+=" --mail-rcpt \"$RECIPIENT\""
+          done
+
+          echo "Sending email via Gmail SMTP..."
+          eval curl -v --mail-from "$EMAIL_FROM" \
+            $RCPT_ARGS \
+            --upload-file email_message.txt \
+            --ssl-reqd \
+            --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+            smtp://smtp.gmail.com:587
 
       - name: Save Test Email Content as Artifact
         if: always()
@@ -149,4 +135,4 @@ jobs:
             email_subject.txt
             email_body.txt
             email_color.txt
-            email_message.txt 
+            email_message.txt
