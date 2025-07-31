@@ -1,0 +1,158 @@
+name: Test Email to Outlook
+
+on:
+  workflow_dispatch:  # Only manual trigger
+    inputs:
+      test_type:
+        description: 'Select test type'
+        required: true
+        type: choice
+        options:
+          - Success Test
+          - Failure Test
+          - Timeout Test
+          - Unknown Test
+
+jobs:
+  test-email-outlook:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Prepare Test Email Content
+        run: |
+          # Get test type from input
+          TEST_TYPE="${{ inputs.test_type }}"
+          
+          # Create email content based on test type
+          if [ "$TEST_TYPE" = "Success Test" ]; then
+            SUBJECT="✅ Test Email - PASSED"
+            BODY="This is a test email for successful test results."
+            COLOR="green"
+            TEST_RESULT="PASSED"
+          elif [ "$TEST_TYPE" = "Failure Test" ]; then
+            SUBJECT="❌ Test Email - FAILED"
+            BODY="This is a test email for failed test results."
+            COLOR="red"
+            TEST_RESULT="FAILED"
+          elif [ "$TEST_TYPE" = "Timeout Test" ]; then
+            SUBJECT="⏰ Test Email - TIMEOUT"
+            BODY="This is a test email for timeout test results."
+            COLOR="orange"
+            TEST_RESULT="TIMEOUT"
+          else
+            SUBJECT="❓ Test Email - UNKNOWN"
+            BODY="This is a test email for unknown test results."
+            COLOR="gray"
+            TEST_RESULT="UNKNOWN"
+          fi
+          
+          # Create HTML email content
+          HTML_CONTENT="
+          <html>
+          <body style='font-family: Arial, sans-serif; padding: 20px;'>
+            <div style='max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; padding: 20px;'>
+              <h2 style='color: $COLOR; margin-top: 0;'>$SUBJECT</h2>
+              <p><strong>$BODY</strong></p>
+              <hr style='border: 1px solid #eee; margin: 20px 0;'>
+              <h3 style='color: #333;'>Test Details:</h3>
+              <ul style='color: #555;'>
+                <li><strong>Test Type:</strong> $TEST_TYPE</li>
+                <li><strong>Result:</strong> $TEST_RESULT</li>
+                <li><strong>Repository:</strong> ${{ github.repository }}</li>
+                <li><strong>Branch:</strong> ${{ github.ref_name }}</li>
+                <li><strong>Triggered by:</strong> ${{ github.actor }}</li>
+                <li><strong>Execution Time:</strong> $(date -u +"%Y-%m-%d %H:%M:%S UTC")</li>
+              </ul>
+              <hr style='border: 1px solid #eee; margin: 20px 0;'>
+              <p style='color: #666; font-size: 14px;'>
+                This is a test email to verify Outlook email functionality for Scandium test notifications.
+              </p>
+              <p style='color: #666; font-size: 14px;'>
+                <a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}' style='color: #0078d4;'>View Workflow Run</a>
+              </p>
+            </div>
+          </body>
+          </html>
+          "
+          
+          # Save email content
+          echo "$SUBJECT" > email_subject.txt
+          echo "$BODY" > email_body.txt
+          echo "$COLOR" > email_color.txt
+          echo "$HTML_CONTENT" > email_notification.html
+
+      - name: Test SMTP Email to Outlook
+        run: |
+          # Read email content
+          SUBJECT=$(cat email_subject.txt)
+          BODY=$(cat email_body.txt)
+          COLOR=$(cat email_color.txt)
+          HTML_CONTENT=$(cat email_notification.html)
+          
+          echo "Testing email sending to Outlook..."
+          echo "Subject: $SUBJECT"
+          echo "Test Type: ${{ inputs.test_type }}"
+          
+          # Check if SMTP credentials are configured
+          if [ -n "${{ secrets.SMTP_SERVER }}" ] && [ -n "${{ secrets.SMTP_USERNAME }}" ] && [ -n "${{ secrets.SMTP_PASSWORD }}" ] && [ -n "${{ secrets.EMAIL_TO }}" ]; then
+            echo "✅ SMTP configuration found. Attempting to send email..."
+            
+            # Create email headers
+            EMAIL_FROM="${{ secrets.SMTP_USERNAME }}"
+            EMAIL_TO="${{ secrets.EMAIL_TO }}"
+            
+            # Create email file
+            echo "From: $EMAIL_FROM" > email_message.txt
+            echo "To: $EMAIL_TO" >> email_message.txt
+            echo "Subject: $SUBJECT" >> email_message.txt
+            echo "MIME-Version: 1.0" >> email_message.txt
+            echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
+            echo "" >> email_message.txt
+            echo "$HTML_CONTENT" >> email_message.txt
+            
+            echo "Email file created. Attempting to send via SMTP..."
+            
+            # Try sending email using curl with SMTP
+            curl -v --mail-from "$EMAIL_FROM" \
+                 --mail-rcpt "$EMAIL_TO" \
+                 --upload-file email_message.txt \
+                 --ssl-reqd \
+                 --user "${{ secrets.SMTP_USERNAME }}:${{ secrets.SMTP_PASSWORD }}" \
+                 "smtp://${{ secrets.SMTP_SERVER }}:${{ secrets.SMTP_PORT || '587' }}"
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Email sent successfully to Outlook!"
+            else
+              echo "❌ Failed to send email to Outlook."
+              echo "This is expected if basic authentication is disabled."
+              echo "Office 365 requires OAuth2 authentication."
+            fi
+          else
+            echo "⚠️ SMTP configuration not found."
+            echo "To test email sending, add these secrets:"
+            echo "  - SMTP_SERVER (e.g., smtp.office365.com)"
+            echo "  - SMTP_USERNAME (your email)"
+            echo "  - SMTP_PASSWORD (your password)"
+            echo "  - EMAIL_TO (recipient email)"
+            echo "  - SMTP_PORT (optional, defaults to 587)"
+          fi
+
+      - name: Save Test Email Content as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-email-content
+          path: |
+            email_notification.html
+            email_subject.txt
+            email_body.txt
+            email_color.txt
+            email_message.txt 

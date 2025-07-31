@@ -173,45 +173,41 @@ jobs:
           echo "$HTML_CONTENT" > email_notification.html
           echo "$SUBJECT" > email_subject.txt
           
-          # Send email using SMTP (if configured)
-          if [ -n "${{ secrets.SMTP_SERVER }}" ] && [ -n "${{ secrets.SMTP_USERNAME }}" ] && [ -n "${{ secrets.SMTP_PASSWORD }}" ] && [ -n "${{ secrets.EMAIL_TO }}" ]; then
-            echo "Sending email notification..."
-            
-            # Create email headers
-            EMAIL_FROM="${{ secrets.SMTP_USERNAME }}"
-            EMAIL_TO="${{ secrets.EMAIL_TO }}"
-            
-            # Create email file
-            echo "From: $EMAIL_FROM" > email_message.txt
-            echo "To: $EMAIL_TO" >> email_message.txt
-            echo "Subject: $SUBJECT" >> email_message.txt
-            echo "MIME-Version: 1.0" >> email_message.txt
-            echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
-            echo "" >> email_message.txt
-            echo "$HTML_CONTENT" >> email_message.txt
-            
-            # Send email using curl with SMTP
-            curl -v --mail-from "$EMAIL_FROM" \
-                 --mail-rcpt "$EMAIL_TO" \
-                 --upload-file email_message.txt \
-                 --ssl-reqd \
-                 --user "${{ secrets.SMTP_USERNAME }}:${{ secrets.SMTP_PASSWORD }}" \
-                 "smtp://${{ secrets.SMTP_SERVER }}:${{ secrets.SMTP_PORT || '587' }}"
-            
-            if [ $? -eq 0 ]; then
-              echo "✅ Email sent successfully!"
-            else
-              echo "❌ Failed to send email"
-            fi
-          else
-            echo "⚠️ Email configuration not found. Email content saved as artifacts."
-            echo "To enable email sending, add these secrets:"
-            echo "  - SMTP_SERVER (e.g., smtp.office365.com)"
-            echo "  - SMTP_USERNAME (your email)"
-            echo "  - SMTP_PASSWORD (your password)"
-            echo "  - EMAIL_TO (recipient email)"
-            echo "  - SMTP_PORT (optional, defaults to 587)"
-          fi
+                                # Send email using AWS SES (if configured)
+           if [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ] && [ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] && [ -n "${{ secrets.AWS_REGION }}" ] && [ -n "${{ secrets.EMAIL_TO }}" ] && [ -n "${{ secrets.EMAIL_FROM }}" ]; then
+             echo "Sending email notification via AWS SES..."
+             
+             # Install AWS CLI
+             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+             unzip awscliv2.zip
+             sudo ./aws/install
+             
+             # Create SES email JSON payload
+             echo '{"Source": "'"${{ secrets.EMAIL_FROM }}"'","Destination":{"ToAddresses":["'"${{ secrets.EMAIL_TO }}"'"]},"Message":{"Subject":{"Data":"'"$SUBJECT"'","Charset":"UTF-8"},"Body":{"Html":{"Data":"'"$HTML_CONTENT"'","Charset":"UTF-8"}}}}' > ses_email.json
+             
+             # Send email using AWS SES
+             aws ses send-email \
+               --cli-input-json file://ses_email.json \
+               --region "${{ secrets.AWS_REGION }}"
+             
+             if [ $? -eq 0 ]; then
+               echo "✅ Email sent successfully via AWS SES!"
+             else
+               echo "❌ Failed to send email via AWS SES."
+               echo "Please check your AWS credentials and SES configuration."
+               echo "Email content has been saved as artifacts for manual sending."
+             fi
+           else
+             echo "⚠️ AWS SES configuration not found. Email content saved as artifacts."
+             echo "To enable AWS SES email sending, add these secrets:"
+             echo "  - AWS_ACCESS_KEY_ID (your AWS access key)"
+             echo "  - AWS_SECRET_ACCESS_KEY (your AWS secret key)"
+             echo "  - AWS_REGION (e.g., us-east-1, eu-west-1)"
+             echo "  - EMAIL_FROM (verified sender email in SES)"
+             echo "  - EMAIL_TO (recipient email)"
+             echo ""
+             echo "Note: Make sure your sender email is verified in AWS SES."
+           fi
 
       - name: Save Email Content as Artifact
         if: always()
