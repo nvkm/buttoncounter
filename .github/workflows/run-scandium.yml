@@ -66,30 +66,45 @@ jobs:
         run: |
           GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}
           GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_FROM=${{ secrets.GMAIL_USERNAME }}
           EMAIL_TO=${{ secrets.EMAIL_TO }}
-
-          # Send email using the exact same curl command that works
-          curl -v --mail-from "$EMAIL_FROM" \
-              --mail-rcpt "$EMAIL_TO" \
-              --upload-file test_result.txt \
-              --ssl-reqd \
-              --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
-              smtp://smtp.gmail.com:587
-
-      - name: Save Email Content as Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scandium-email-content
-          path: |
-            email_content.html
-            email_subject.txt
-            email_message.txt
-            failed_tests.html
-            scandium_output.log
-
-      - name: Cleanup Temporary Files
-        if: always()
-        run: |
-          rm -f temp_results.json temp_steps.json
-          echo "🧹 Temporary processing files cleaned up"
+          SUBJECT="Scandium Test Result - ${{ inputs.environment }}"
+          BOUNDARY="ZZ_$(date +%s)_ZZ"
+      
+          {
+            echo "From: $EMAIL_FROM"
+            echo "To: $EMAIL_TO"
+            echo "Subject: $SUBJECT"
+            echo "MIME-Version: 1.0"
+            echo "Content-Type: multipart/mixed; boundary=\"$BOUNDARY\""
+            echo
+            echo "--$BOUNDARY"
+            echo "Content-Type: text/plain; charset=UTF-8"
+            echo "Content-Transfer-Encoding: 7bit"
+            echo
+            echo "Hello,"
+            echo
+            echo "Please find attached the Scandium test log and the result file."
+            echo
+            echo "--$BOUNDARY"
+            echo "Content-Type: text/plain"
+            echo "Content-Disposition: attachment; filename=\"test_result.txt\""
+            echo
+            cat test_result.txt
+            echo
+            echo "--$BOUNDARY"
+            echo "Content-Type: text/plain"
+            echo "Content-Disposition: attachment; filename=\"scandium_output.log\""
+            echo
+            cat scandium_output.log
+            echo
+            echo "--$BOUNDARY--"
+          } > email_content.txt
+      
+          curl -v --ssl-reqd \
+            --url smtp://smtp.gmail.com:587 \
+            --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+            --mail-from "$EMAIL_FROM" \
+            --mail-rcpt "$EMAIL_TO" \
+            --upload-file email_content.txt
+      
