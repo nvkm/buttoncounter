@@ -62,12 +62,17 @@ jobs:
           ./scandium_script.sh 2>&1 | tee scandium_output.log
         id: run-tests
 
-      - name: Save Log Output as Artifact
+      - name: Save Email Content as Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scandium-logs
-          path: scandium_output.log
+          name: scandium-email-content
+          path: |
+            email_content.html
+            email_subject.txt
+            email_message.txt
+            failed_tests.html
+            scandium_output.log
 
       - name: Generate Enhanced Email Content from Final Results
         if: always()
@@ -293,51 +298,69 @@ jobs:
 
       - name: Send Enhanced Email via Gmail SMTP
         run: |
-          GMAIL_USERNAME="c.naveenkumar74@gmail.com"
-          GMAIL_APP_PASSWORD="uziy iwpv ntst skrf"
-          EMAIL_TO="c.naveenkumar74@outlook.com"
+          GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
+          GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
+          EMAIL_TO="${{ secrets.EMAIL_TO }}"
 
           # Read the subject and HTML content
           SUBJECT=$(cat email_subject.txt)
           HTML_CONTENT=$(cat email_content.html)
 
-          # Create email message with proper headers
-          cat > email_message.txt << EOF
-          From: $GMAIL_USERNAME
-          To: $EMAIL_TO
-          Subject: $SUBJECT
-          MIME-Version: 1.0
-          Content-Type: text/html; charset=UTF-8
-          Content-Transfer-Encoding: 8bit
-
-          $HTML_CONTENT
-          EOF
-
           echo "📧 Sending enhanced email with detailed test results..."
-
-          # Handle multiple recipients
-          IFS=',' read -ra ADDR <<< "$EMAIL_TO"
-          RCPT_ARGS=""
-          for RECIPIENT in "${ADDR[@]}"; do
-            RECIPIENT=$(echo "$RECIPIENT" | xargs)  # Trim whitespace
-            RCPT_ARGS="$RCPT_ARGS --mail-rcpt $RECIPIENT"
-          done
-
-          # Send email using curl
-          eval curl -v --mail-from "$GMAIL_USERNAME" \
-               $RCPT_ARGS \
-               --upload-file email_message.txt \
-               --ssl-reqd \
-               --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
-               smtp://smtp.gmail.com:587
-
-          if [ $? -eq 0 ]; then
-            echo "✅ Enhanced email sent successfully!"
-            echo "📋 Email included detailed test results, failure analysis, and screenshots"
+          echo "Subject: $SUBJECT"
+          echo "Environment: ${{ inputs.environment }}"
+          
+          if [ -n "$GMAIL_USERNAME" ] && [ -n "$GMAIL_APP_PASSWORD" ] && [ -n "$EMAIL_TO" ]; then
+            echo "✅ Gmail SMTP configuration found. Attempting to send email..."
+            
+            # Create email message with proper headers (exactly like working test)
+            EMAIL_FROM="$GMAIL_USERNAME"
+            echo "From: $EMAIL_FROM" > email_message.txt
+            echo "To: $EMAIL_TO" >> email_message.txt
+            echo "Subject: $SUBJECT" >> email_message.txt
+            echo "MIME-Version: 1.0" >> email_message.txt
+            echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
+            echo "" >> email_message.txt
+            echo "$HTML_CONTENT" >> email_message.txt
+            
+            echo "Email file created. Attempting to send via Gmail SMTP..."
+            
+            # Send email using the exact same curl command that works
+            curl -v --mail-from "$EMAIL_FROM" \
+                --mail-rcpt "$EMAIL_TO" \
+                --upload-file email_message.txt \
+                --ssl-reqd \
+                --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+                smtp://smtp.gmail.com:587
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Enhanced email sent successfully from Gmail!"
+              echo "📋 Email included detailed test results, failure analysis, and screenshots"
+            else
+              echo "❌ Failed to send email from Gmail."
+              echo "----------------------------------------"
+              echo "Possible causes:"
+              echo "- App Password not set up or incorrect."
+              echo "- 2-Step Verification not enabled on your Google account."
+              echo "- Gmail SMTP access not allowed."
+              echo "- Google may block sign-in from unknown locations (check your email for security alerts)."
+              echo "----------------------------------------"
+              echo "How to fix:"
+              echo "1. Enable 2-Step Verification on your Google account."
+              echo "2. Create an App Password for 'Mail'."
+              echo "3. Use the App Password as GMAIL_APP_PASSWORD."
+              echo "4. Make sure EMAIL_TO is a valid recipient."
+              echo "5. Check your Google account for security alerts."
+              echo "----------------------------------------"
+              echo "See: https://support.google.com/accounts/answer/185833"
+            fi
           else
-            echo "❌ Failed to send email"
-            echo "💡 Check your Gmail app password and SMTP settings"
-            echo "📖 See: https://support.google.com/accounts/answer/185833"
+            echo "⚠️ Gmail SMTP configuration not found."
+            echo "Please ensure GMAIL_USERNAME, GMAIL_APP_PASSWORD, and EMAIL_TO secrets are set."
+            echo "Required secrets:"
+            echo "- GMAIL_USERNAME: Your Gmail address"
+            echo "- GMAIL_APP_PASSWORD: Your Gmail App Password (not regular password)"
+            echo "- EMAIL_TO: Recipient email address"
           fi
 
       - name: Cleanup Temporary Files
