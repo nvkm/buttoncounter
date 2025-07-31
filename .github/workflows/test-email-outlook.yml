@@ -85,10 +85,9 @@ jobs:
       - name: Test Gmail SMTP Email
         run: |
           # === HARDCODED TEST VALUES ===
-          GMAIL_USERNAME=c.naveenkumar74@gmail.com
-          GMAIL_APP_PASSWORD=cpog hqug zacd ffyn
-          EMAIL_TO=c.naveenkumar74@outlook.com
-          # =============================
+          GMAIL_USERNAME="c.naveenkumar74@gmail.com"
+          GMAIL_APP_PASSWORD="cpog hqug zacd ffyn"
+          EMAIL_TO="c.naveenkumar74@outlook.com"
 
           SUBJECT=$(cat email_subject.txt)
           BODY=$(cat email_body.txt)
@@ -96,8 +95,8 @@ jobs:
           HTML_CONTENT=$(cat email_notification.html)
           echo "Testing email sending from Gmail SMTP..."
           echo "Subject: $SUBJECT"
-          echo "Test Type: ${{ inputs.test_type }}"
-
+          echo "Test Type: Success Test"
+          
           if [ -n "$GMAIL_USERNAME" ] && [ -n "$GMAIL_APP_PASSWORD" ] && [ -n "$EMAIL_TO" ]; then
             echo "✅ Gmail SMTP configuration found. Attempting to send email..."
             EMAIL_FROM="$GMAIL_USERNAME"
@@ -109,21 +108,12 @@ jobs:
             echo "" >> email_message.txt
             echo "$HTML_CONTENT" >> email_message.txt
             echo "Email file created. Attempting to send via Gmail SMTP..."
-
-            # Handle multiple recipients
-            IFS=',' read -ra ADDR <<< "$EMAIL_TO"
-            RCPT_ARGS=""
-            for RECIPIENT in "${ADDR[@]}"; do
-              RCPT_ARGS="$RCPT_ARGS --mail-rcpt $RECIPIENT"
-            done
-
-            eval curl -v --mail-from "$EMAIL_FROM" \
-                 $RCPT_ARGS \
-                 --upload-file email_message.txt \
-                 --ssl-reqd \
-                 --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
-                 smtp://smtp.gmail.com:587
-
+            curl -v --mail-from "$EMAIL_FROM" \
+                --mail-rcpt "$EMAIL_TO" \
+                --upload-file email_message.txt \
+                --ssl-reqd \
+                --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+                smtp://smtp.gmail.com:587
             if [ $? -eq 0 ]; then
               echo "✅ Email sent successfully from Gmail!"
             else
