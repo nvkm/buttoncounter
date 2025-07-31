@@ -1,0 +1,162 @@
+name: Test Email from Gmail
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Select test type'
+        required: true
+        type: choice
+        options:
+          - Success Test
+          - Failure Test
+          - Timeout Test
+          - Unknown Test
+
+jobs:
+  test-email-gmail:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Prepare Test Email Content
+        run: |
+          TEST_TYPE="${{ inputs.test_type }}"
+          if [ "$TEST_TYPE" = "Success Test" ]; then
+            SUBJECT="✅ Test Email - PASSED"
+            BODY="This is a test email for successful test results."
+            COLOR="green"
+            TEST_RESULT="PASSED"
+          elif [ "$TEST_TYPE" = "Failure Test" ]; then
+            SUBJECT="❌ Test Email - FAILED"
+            BODY="This is a test email for failed test results."
+            COLOR="red"
+            TEST_RESULT="FAILED"
+          elif [ "$TEST_TYPE" = "Timeout Test" ]; then
+            SUBJECT="⏰ Test Email - TIMEOUT"
+            BODY="This is a test email for timeout test results."
+            COLOR="orange"
+            TEST_RESULT="TIMEOUT"
+          else
+            SUBJECT="❓ Test Email - UNKNOWN"
+            BODY="This is a test email for unknown test results."
+            COLOR="gray"
+            TEST_RESULT="UNKNOWN"
+          fi
+          HTML_CONTENT="
+          <html>
+          <body style='font-family: Arial, sans-serif; padding: 20px;'>
+            <div style='max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; padding: 20px;'>
+              <h2 style='color: $COLOR; margin-top: 0;'>$SUBJECT</h2>
+              <p><strong>$BODY</strong></p>
+              <hr style='border: 1px solid #eee; margin: 20px 0;'>
+              <h3 style='color: #333;'>Test Details:</h3>
+              <ul style='color: #555;'>
+                <li><strong>Test Type:</strong> $TEST_TYPE</li>
+                <li><strong>Result:</strong> $TEST_RESULT</li>
+                <li><strong>Repository:</strong> ${{ github.repository }}</li>
+                <li><strong>Branch:</strong> ${{ github.ref_name }}</li>
+                <li><strong>Triggered by:</strong> ${{ github.actor }}</li>
+                <li><strong>Execution Time:</strong> $(date -u +"%Y-%m-%d %H:%M:%S UTC")</li>
+              </ul>
+              <hr style='border: 1px solid #eee; margin: 20px 0;'>
+              <p style='color: #666; font-size: 14px;'>
+                This is a test email to verify Gmail SMTP functionality for CI/CD notifications.
+              </p>
+              <p style='color: #666; font-size: 14px;'>
+                <a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}' style='color: #0078d4;'>View Workflow Run</a>
+              </p>
+            </div>
+          </body>
+          </html>
+          "
+          echo "$SUBJECT" > email_subject.txt
+          echo "$BODY" > email_body.txt
+          echo "$COLOR" > email_color.txt
+          echo "$HTML_CONTENT" > email_notification.html
+
+      - name: Test Gmail SMTP Email
+        run: |
+          # === HARDCODED TEST VALUES ===
+          GMAIL_USERNAME="c.naveenkumar74@gmail.com"
+          GMAIL_APP_PASSWORD="uziy iwpv ntst skrf"
+          EMAIL_TO="c.naveenkumar74@outlook.com"
+          # =============================
+
+          SUBJECT=$(cat email_subject.txt)
+          BODY=$(cat email_body.txt)
+          COLOR=$(cat email_color.txt)
+          HTML_CONTENT=$(cat email_notification.html)
+          echo "Testing email sending from Gmail SMTP..."
+          echo "Subject: $SUBJECT"
+          echo "Test Type: ${{ inputs.test_type }}"
+
+          if [ -n "$GMAIL_USERNAME" ] && [ -n "$GMAIL_APP_PASSWORD" ] && [ -n "$EMAIL_TO" ]; then
+            echo "✅ Gmail SMTP configuration found. Attempting to send email..."
+            EMAIL_FROM="$GMAIL_USERNAME"
+            echo "From: $EMAIL_FROM" > email_message.txt
+            echo "To: $EMAIL_TO" >> email_message.txt
+            echo "Subject: $SUBJECT" >> email_message.txt
+            echo "MIME-Version: 1.0" >> email_message.txt
+            echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
+            echo "" >> email_message.txt
+            echo "$HTML_CONTENT" >> email_message.txt
+            echo "Email file created. Attempting to send via Gmail SMTP..."
+
+            # Handle multiple recipients
+            IFS=',' read -ra ADDR <<< "$EMAIL_TO"
+            RCPT_ARGS=""
+            for RECIPIENT in "${ADDR[@]}"; do
+              RCPT_ARGS="$RCPT_ARGS --mail-rcpt $RECIPIENT"
+            done
+
+            eval curl -v --mail-from "$EMAIL_FROM" \
+                 $RCPT_ARGS \
+                 --upload-file email_message.txt \
+                 --ssl-reqd \
+                 --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+                 smtp://smtp.gmail.com:587
+
+            if [ $? -eq 0 ]; then
+              echo "✅ Email sent successfully from Gmail!"
+            else
+              echo "❌ Failed to send email from Gmail."
+              echo "----------------------------------------"
+              echo "Possible causes:"
+              echo "- App Password not set up or incorrect."
+              echo "- 2-Step Verification not enabled on your Google account."
+              echo "- Gmail SMTP access not allowed."
+              echo "- Google may block sign-in from unknown locations (check your email for security alerts)."
+              echo "----------------------------------------"
+              echo "How to fix:"
+              echo "1. Enable 2-Step Verification on your Google account."
+              echo "2. Create an App Password for 'Mail'."
+              echo "3. Use the App Password as GMAIL_APP_PASSWORD."
+              echo "4. Make sure EMAIL_TO is a valid recipient."
+              echo "5. Check your Google account for security alerts."
+              echo "----------------------------------------"
+              echo "See: https://support.google.com/accounts/answer/185833"
+            fi
+          else
+            echo "⚠️ Gmail SMTP configuration not found."
+            echo "Please provide GMAIL_USERNAME, GMAIL_APP_PASSWORD, and EMAIL_TO at the top of this script."
+          fi
+
+      - name: Save Test Email Content as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-email-content
+          path: |
+            email_notification.html
+            email_subject.txt
+            email_body.txt
+            email_color.txt
+            email_message.txt 
