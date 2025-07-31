@@ -124,40 +124,54 @@ jobs:
               
               # Process individual test results for failures
               if [ "$(cat "$result_file" | jq -r '.data.results // null')" != "null" ]; then
-                cat "$result_file" | jq -c '.data.results[]' | while read -r test_result; do
-                  TEST_NAME=$(echo "$test_result" | jq -r '.name // "Unknown Test"')
-                  TEST_STATUS=$(echo "$test_result" | jq -r '.status // "unknown"')
-                  TEST_REASON=$(echo "$test_result" | jq -r '.reason // ""')
-                  
-                  if [ "$TEST_STATUS" = "error" ] || [ "$TEST_STATUS" = "failed" ]; then
-                    echo "<div style='margin: 10px 0; padding: 10px; background: #ffebee; border-left: 4px solid #f44336;'>" >> failed_tests.html
-                    echo "<strong>❌ Failed Test:</strong> $TEST_NAME<br>" >> failed_tests.html
-                    if [ -n "$TEST_REASON" ] && [ "$TEST_REASON" != "null" ]; then
-                      echo "<strong>Reason:</strong> $TEST_REASON<br>" >> failed_tests.html
-                    fi
+                # Create temporary file for processing test results
+                cat "$result_file" | jq -c '.data.results[]' > temp_results.json
+                
+                while IFS= read -r test_result; do
+                  if [ -n "$test_result" ]; then
+                    TEST_NAME=$(echo "$test_result" | jq -r '.name // "Unknown Test"')
+                    TEST_STATUS=$(echo "$test_result" | jq -r '.status // "unknown"')
+                    TEST_REASON=$(echo "$test_result" | jq -r '.reason // ""')
                     
-                    # Process test steps for detailed failure info
-                    if [ "$(echo "$test_result" | jq -r '.test_runs // null')" != "null" ]; then
-                      echo "$test_result" | jq -c '.test_runs[]' | while read -r step; do
-                        STEP_STATUS=$(echo "$step" | jq -r '.status // "unknown"')
-                        STEP_TITLE=$(echo "$step" | jq -r '.title // "Unknown Step"')
-                        STEP_ERROR=$(echo "$step" | jq -r '.error // ""')
-                        SCREENSHOT_URL=$(echo "$step" | jq -r '.result_screenshot.imageData // ""')
+                    if [ "$TEST_STATUS" = "error" ] || [ "$TEST_STATUS" = "failed" ]; then
+                      echo "<div style='margin: 10px 0; padding: 10px; background: #ffebee; border-left: 4px solid #f44336;'>" >> failed_tests.html
+                      echo "<strong>❌ Failed Test:</strong> $TEST_NAME<br>" >> failed_tests.html
+                      if [ -n "$TEST_REASON" ] && [ "$TEST_REASON" != "null" ] && [ "$TEST_REASON" != "" ]; then
+                        echo "<strong>Reason:</strong> $TEST_REASON<br>" >> failed_tests.html
+                      fi
+                      
+                      # Process test steps for detailed failure info
+                      if [ "$(echo "$test_result" | jq -r '.test_runs // null')" != "null" ]; then
+                        # Create temporary file for test steps
+                        echo "$test_result" | jq -c '.test_runs[]' > temp_steps.json
                         
-                        if [ "$STEP_STATUS" = "error" ] || [ "$STEP_STATUS" = "failed" ]; then
-                          echo "&nbsp;&nbsp;🔴 <strong>Failed Step:</strong> $STEP_TITLE<br>" >> failed_tests.html
-                          if [ -n "$STEP_ERROR" ] && [ "$STEP_ERROR" != "null" ]; then
-                            echo "&nbsp;&nbsp;<strong>Error:</strong> $STEP_ERROR<br>" >> failed_tests.html
+                        while IFS= read -r step; do
+                          if [ -n "$step" ]; then
+                            STEP_STATUS=$(echo "$step" | jq -r '.status // "unknown"')
+                            STEP_TITLE=$(echo "$step" | jq -r '.title // "Unknown Step"')
+                            STEP_ERROR=$(echo "$step" | jq -r '.error // ""')
+                            SCREENSHOT_URL=$(echo "$step" | jq -r '.result_screenshot.imageData // ""')
+                            
+                            if [ "$STEP_STATUS" = "error" ] || [ "$STEP_STATUS" = "failed" ]; then
+                              echo "&nbsp;&nbsp;🔴 <strong>Failed Step:</strong> $STEP_TITLE<br>" >> failed_tests.html
+                              if [ -n "$STEP_ERROR" ] && [ "$STEP_ERROR" != "null" ] && [ "$STEP_ERROR" != "" ]; then
+                                echo "&nbsp;&nbsp;<strong>Error:</strong> $STEP_ERROR<br>" >> failed_tests.html
+                              fi
+                              if [ -n "$SCREENSHOT_URL" ] && [ "$SCREENSHOT_URL" != "null" ] && [ "$SCREENSHOT_URL" != "" ]; then
+                                echo "&nbsp;&nbsp;📷 <a href='$SCREENSHOT_URL' style='color: #1976d2;'>View Screenshot</a><br>" >> failed_tests.html
+                              fi
+                            fi
                           fi
-                          if [ -n "$SCREENSHOT_URL" ] && [ "$SCREENSHOT_URL" != "null" ] && [ "$SCREENSHOT_URL" != "" ]; then
-                            echo "&nbsp;&nbsp;📷 <a href='$SCREENSHOT_URL' style='color: #1976d2;'>View Screenshot</a><br>" >> failed_tests.html
-                          fi
-                        fi
-                      done
+                        done < temp_steps.json
+                        
+                        rm -f temp_steps.json
+                      fi
+                      echo "</div>" >> failed_tests.html
                     fi
-                    echo "</div>" >> failed_tests.html
                   fi
-                done
+                done < temp_results.json
+                
+                rm -f temp_results.json
               fi
               
               # Build execution details
@@ -329,5 +343,5 @@ jobs:
       - name: Cleanup Temporary Files
         if: always()
         run: |
-          rm -f email_content.html email_subject.txt email_message.txt failed_tests.html
+          rm -f email_content.html email_subject.txt email_message.txt failed_tests.html temp_results.json temp_steps.json
           echo "🧹 Temporary email files cleaned up"
