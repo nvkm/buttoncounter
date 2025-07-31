@@ -73,39 +73,42 @@ jobs:
       
           FINAL_LINE=$(grep -oP 'Raw response for execution ID [^:]+: \K\{.*' scandium_output.log | tail -n 1)
       
-          if [ -z "$FINAL_LINE" ]; then
-            echo "No test results available." > body.txt
-          else
-            echo "$FINAL_LINE" > parsed_result.json
+          echo "$FINAL_LINE" > parsed_result.json
       
-            jq -r '
-              "Hello,\n\nThe latest Scandium test run has completed with the following result:\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
-              "\n\\ud83e\\uddea Test Suite: \(.data.name)" +
-              "\n\\ud83d\\udcca Status: \(.data.status | ascii_downcase | if . == \"error\" then \"\\u274c ERROR\" else . end)" +
-              "\n\\ud83d\\udcbb Browser: \(.data.browser) \(.data.browser_version)" +
-              "\n\\ud83d\\udda5 OS: \(.data.operating_system) (\(.data.operating_system_version))" +
-              "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
-              "\n\\ud83d\\udd0d Test Case: \(.data.results[0].name)" +
-              "\n\\u23f1 Duration: \((.data.results[0].duration / 1000.0) | tostring) seconds" +
-              "\n\\ud83d\\udcc8 Summary: \(.data.results[0].summary.passed) Passed / \(.data.results[0].summary.total) Total" +
-              "\n\\ud83d\\udcc9 Status: \\u274c \(.data.results[0].status | ascii_upcase)" +
-              "\n\\ud83e\\uddfe Reason: \(.data.results[0].reason // \"N/A\")" +
-              "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
-              "\n\\ud83d\\udccb Step Breakdown:\n" +
-              (
-                .data.results[0].test_runs | map(
-                  "  \((if .status == \"error\" then \"\\u274c\" else \"\\u2705\" end)) \(.title) (\((.time_taken / 1000.0) | tostring)s)" +
-                  (if .status == "error" then
-                    "\n   \\u2517 Error: \(.error // \"Unknown\")" +
-                    (if .result_screenshot.imageData then
-                      "\n   \\u2517 \\ud83d\\udcf8 Screenshot: \(.result_screenshot.imageData)"
-                    else "" end)
-                  else "" end)
-                ) | join("\n")
-              ) +
-              "\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\nThe complete execution log is attached.\n\nBest regards,\nScandium CI Bot"
-            ' parsed_result.json > body.txt
-          fi
+          STATUS=$(jq -r '.data.status' parsed_result.json)
+          NAME=$(jq -r '.data.name' parsed_result.json)
+          BROWSER=$(jq -r '.data.browser' parsed_result.json)
+          OS=$(jq -r '.data.operating_system' parsed_result.json)
+          DURATION_MS=$(jq -r '.data.duration' parsed_result.json)
+          DURATION_SEC=$((DURATION_MS / 1000))
+          SUMMARY=$(jq -r '.data.summary' parsed_result.json)
+      
+          TEST_NAME=$(jq -r '.data.results[0].name' parsed_result.json)
+          TEST_STATUS=$(jq -r '.data.results[0].status' parsed_result.json)
+          TEST_REASON=$(jq -r '.data.results[0].reason' parsed_result.json)
+      
+          FAILING_STEP=$(jq '.data.results[0].test_runs[] | select(.status == "error")' parsed_result.json)
+          STEP_TITLE=$(echo "$FAILING_STEP" | jq -r '.title')
+          STEP_ERROR=$(echo "$FAILING_STEP" | jq -r '.error')
+          STEP_TIME=$(( $(echo "$FAILING_STEP" | jq -r '.time_taken') / 1000 ))
+          STEP_SCREENSHOT=$(echo "$FAILING_STEP" | jq -r '.result_screenshot.imageData')
+      
+          BODY_TEXT="Test Suite: $NAME
+          Test Name: $TEST_NAME
+          Environment: ${{ inputs.environment }}
+          Browser: $BROWSER
+          OS: $OS
+          Total Duration: ${DURATION_SEC}s
+          Overall Status: ${STATUS^^}
+          
+          Summary: $SUMMARY
+          
+          ❌ Failed Step:
+          - Title: $STEP_TITLE
+          - Error: $STEP_ERROR
+          - Duration: ${STEP_TIME}s
+          - Screenshot: $STEP_SCREENSHOT
+          "
       
           {
             echo "From: $EMAIL_FROM"
@@ -118,7 +121,7 @@ jobs:
             echo "Content-Type: text/plain; charset=utf-8"
             echo "Content-Transfer-Encoding: 7bit"
             echo
-            cat body.txt
+            echo "$BODY_TEXT"
             echo
             echo "--$BOUNDARY"
             echo "Content-Type: text/plain"
@@ -135,3 +138,4 @@ jobs:
             --mail-from "$EMAIL_FROM" \
             --mail-rcpt "$EMAIL_TO" \
             --upload-file email_content.txt
+      
