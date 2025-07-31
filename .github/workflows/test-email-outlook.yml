@@ -84,46 +84,62 @@ jobs:
           echo "$COLOR" > email_color.txt
           echo "$HTML_CONTENT" > email_notification.html
 
-      - name: Send Gmail Email to Multiple Recipients
+      - name: Test Gmail SMTP Email to Multiple Recipients
         run: |
           GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
           GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
           EMAIL_TO="${{ secrets.EMAIL_TO }}"
 
           SUBJECT=$(cat email_subject.txt)
+          BODY=$(cat email_body.txt)
+          COLOR=$(cat email_color.txt)
           HTML_CONTENT=$(cat email_notification.html)
-          EMAIL_FROM="$GMAIL_USERNAME"
 
-          echo "From: $EMAIL_FROM" > email_message.txt
-          echo "To: $EMAIL_TO" >> email_message.txt
-          if [ -n "$EMAIL_CC" ]; then
-            echo "Cc: $EMAIL_CC" >> email_message.txt
+          echo "Testing email sending from Gmail SMTP to multiple recipients..."
+
+          if [ -n "$GMAIL_USERNAME" ] && [ -n "$GMAIL_APP_PASSWORD" ] && [ -n "$EMAIL_TO" ]; then
+            echo "✅ Gmail SMTP configuration found. Attempting to send email..."
+            EMAIL_FROM="$GMAIL_USERNAME"
+
+            echo "From: $EMAIL_FROM" > email_message.txt
+            echo "To: Multiple Recipients" >> email_message.txt
+            echo "Subject: $SUBJECT" >> email_message.txt
+            echo "MIME-Version: 1.0" >> email_message.txt
+            echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
+            echo "" >> email_message.txt
+            echo "$HTML_CONTENT" >> email_message.txt
+
+            # Convert comma-separated list to multiple --mail-rcpt flags
+            MAIL_RCPT_ARGS=""
+            IFS=',' read -ra RECIPIENTS <<< "$EMAIL_TO"
+            for RECIPIENT in "${RECIPIENTS[@]}"; do
+              MAIL_RCPT_ARGS="$MAIL_RCPT_ARGS --mail-rcpt $RECIPIENT"
+            done
+
+            # Send the email using curl
+            eval curl -v --mail-from "$EMAIL_FROM" \
+                 $MAIL_RCPT_ARGS \
+                 --upload-file email_message.txt \
+                 --ssl-reqd \
+                 --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+                 smtp://smtp.gmail.com:587
+
+            if [ $? -eq 0 ]; then
+              echo "✅ Email sent successfully to all recipients!"
+            else
+              echo "❌ Failed to send email via Gmail SMTP."
+              echo "----------------------------------------"
+              echo "Possible causes:"
+              echo "- App Password not set up or incorrect."
+              echo "- 2-Step Verification not enabled on your Google account."
+              echo "- SMTP access blocked by Google."
+              echo "- Check for security alerts in your Google account."
+              echo "----------------------------------------"
+              echo "See: https://support.google.com/accounts/answer/185833"
+            fi
+          else
+            echo "⚠️ Missing Gmail credentials or recipient list."
           fi
-          echo "Subject: $SUBJECT" >> email_message.txt
-          echo "MIME-Version: 1.0" >> email_message.txt
-          echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
-          echo "" >> email_message.txt
-          echo "$HTML_CONTENT" >> email_message.txt
-
-          # Build --mail-rcpt arguments
-          RCPT_ARGS=""
-          IFS=',' read -ra TO_LIST <<< "$EMAIL_TO"
-          for RECIPIENT in "${TO_LIST[@]}"; do
-            RCPT_ARGS+=" --mail-rcpt \"$RECIPIENT\""
-          done
-
-          IFS=',' read -ra CC_LIST <<< "$EMAIL_CC"
-          for RECIPIENT in "${CC_LIST[@]}"; do
-            RCPT_ARGS+=" --mail-rcpt \"$RECIPIENT\""
-          done
-
-          echo "Sending email via Gmail SMTP..."
-          eval curl -v --mail-from "$EMAIL_FROM" \
-            $RCPT_ARGS \
-            --upload-file email_message.txt \
-            --ssl-reqd \
-            --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
-            smtp://smtp.gmail.com:587
 
       - name: Save Test Email Content as Artifact
         if: always()
