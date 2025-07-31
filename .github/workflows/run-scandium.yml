@@ -81,7 +81,7 @@ jobs:
             jq -r '
               "Hello,\n\nThe latest Scandium test run has completed with the following result:\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
               "\n🧪 Test Suite: \(.data.name)" +
-              "\n📊 Status: \(.data.status | ascii_downcase | if . == "error" then "❌ ERROR" else . end)" +
+              "\n📊 Status: \(.data.status | ascii_downcase | if . == \"error\" then \"❌ ERROR\" else . end)" +
               "\n💻 Browser: \(.data.browser) \(.data.browser_version)" +
               "\n🖥 OS: \(.data.operating_system) (\(.data.operating_system_version))" +
               "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
@@ -89,20 +89,23 @@ jobs:
               "\n⏱ Duration: \((.data.results[0].duration / 1000.0) | tostring) seconds" +
               "\n📈 Summary: \(.data.results[0].summary.passed) Passed / \(.data.results[0].summary.total) Total" +
               "\n📉 Status: ❌ \(.data.results[0].status | ascii_upcase)" +
-              "\n🧾 Reason: \(.data.results[0].reason // "N/A")" +
+              "\n🧾 Reason: \(.data.results[0].reason // \"N/A\")" +
               "\n\n━━━━━━━━━━━━━━━━━━━━━━━" +
               "\n📋 Step Breakdown:\n" +
-              (.data.results[0].test_runs | map(
-                "  \((.status == "error")? "❌" : "✅") \(.title) (\((.time_taken / 1000.0) | tostring)s)" +
-                (if .status == "error" then
-                  "\n   ┗ Error: \(.error // "Unknown")" +
-                  (if .result_screenshot.imageData then
-                    "\n   ┗ 📸 Screenshot: \(.result_screenshot.imageData)"
+              (
+                .data.results[0].test_runs | map(
+                  "  \((.status == \"error\")? \"❌\" : \"✅\") \(.title) (\((.time_taken / 1000.0) | tostring)s)" +
+                  (if .status == "error" then
+                    "\n   ┗ Error: \(.error // \"Unknown\")" +
+                    (if .result_screenshot.imageData then
+                      "\n   ┗ 📸 Screenshot: \(.result_screenshot.imageData)"
+                    else "" end)
                   else "" end)
-                else "" end)
-              ) | join("\n")) +
+                ) | join("\n")
+              ) +
               "\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\nThe complete execution log is attached.\n\nBest regards,\nScandium CI Bot"
             ' parsed_result.json > body.txt
+
           fi
       
           {
