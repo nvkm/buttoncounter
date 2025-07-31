@@ -140,74 +140,92 @@ jobs:
             done
           fi
 
-      - name: Send Email Notification
-        if: always()
+      - name: Send Scandium Results via Gmail SMTP
         run: |
-          # Read email content
-          SUBJECT=$(cat email_subject.txt)
-          BODY=$(cat email_body.txt)
-          COLOR=$(cat email_color.txt)
-          
-          # Create HTML email content
+          GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO=${{ secrets.EMAIL_TO }}
+
+          # Read Scandium result
+          if [ -f "test_result.txt" ]; then
+            TEST_RESULT=$(cat test_result.txt)
+          else
+            TEST_RESULT="UNKNOWN"
+          fi
+
+          # Prepare subject/body/color
+          if [ "$TEST_RESULT" = "PASSED" ]; then
+            SUBJECT="✅ Scandium Test Results - PASSED"
+            BODY="All tests have passed successfully!"
+            COLOR="green"
+          elif [ "$TEST_RESULT" = "FAILED" ]; then
+            SUBJECT="❌ Scandium Test Results - FAILED"
+            BODY="One or more tests have failed. Check the logs for details."
+            COLOR="red"
+          elif [ "$TEST_RESULT" = "TIMEOUT" ]; then
+            SUBJECT="⏰ Scandium Test Results - TIMEOUT"
+            BODY="Tests did not complete within the timeout period."
+            COLOR="orange"
+          else
+            SUBJECT="❓ Scandium Test Results - UNKNOWN"
+            BODY="Test results are unknown. Check the logs for details."
+            COLOR="gray"
+          fi
+
+          # Optionally, include a summary from test_report.txt
+          if [ -f "test_report.txt" ]; then
+            REPORT_CONTENT=$(cat test_report.txt)
+          else
+            REPORT_CONTENT="No detailed report found."
+          fi
+
+          # Prepare HTML content
           HTML_CONTENT="
           <html>
-          <body style='font-family: Arial, sans-serif;'>
-            <h2 style='color: $COLOR;'>$SUBJECT</h2>
-            <p><strong>$BODY</strong></p>
-            <hr>
-            <h3>Test Details:</h3>
-            <ul>
-              <li><strong>Environment:</strong> ${{ inputs.environment }}</li>
-              <li><strong>Repository:</strong> ${{ github.repository }}</li>
-              <li><strong>Branch:</strong> ${{ github.ref_name }}</li>
-              <li><strong>Triggered by:</strong> ${{ github.actor }}</li>
-              <li><strong>Execution Time:</strong> $(date -u +"%Y-%m-%d %H:%M:%S UTC")</li>
-            </ul>
-            <hr>
-            <p><a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'>View Detailed Logs</a></p>
+          <body style='font-family: Arial, sans-serif; padding: 20px;'>
+            <div style='max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; padding: 20px;'>
+              <h2 style='color: $COLOR; margin-top: 0;'>$SUBJECT</h2>
+              <p><strong>$BODY</strong></p>
+              <hr style='border: 1px solid #eee; margin: 20px 0;'>
+              <h3 style='color: #333;'>Test Report:</h3>
+              <pre style='color: #555; background: #f9f9f9; padding: 10px; border-radius: 4px; font-size: 13px;'>$REPORT_CONTENT</pre>
+              <hr style='border: 1px solid #eee; margin: 20px 0;'>
+              <p style='color: #666; font-size: 14px;'>
+                <a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}' style='color: #0078d4;'>View Workflow Run</a>
+              </p>
+            </div>
           </body>
           </html>
           "
-          
-          # Save email content for debugging
-          echo "$HTML_CONTENT" > email_notification.html
-          echo "$SUBJECT" > email_subject.txt
-          
-                                # Send email using AWS SES (if configured)
-           if [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ] && [ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] && [ -n "${{ secrets.AWS_REGION }}" ] && [ -n "${{ secrets.EMAIL_TO }}" ] && [ -n "${{ secrets.EMAIL_FROM }}" ]; then
-             echo "Sending email notification via AWS SES..."
-             
-             # Install AWS CLI
-             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-             unzip awscliv2.zip
-             sudo ./aws/install
-             
-             # Create SES email JSON payload
-             echo '{"Source": "'"${{ secrets.EMAIL_FROM }}"'","Destination":{"ToAddresses":["'"${{ secrets.EMAIL_TO }}"'"]},"Message":{"Subject":{"Data":"'"$SUBJECT"'","Charset":"UTF-8"},"Body":{"Html":{"Data":"'"$HTML_CONTENT"'","Charset":"UTF-8"}}}}' > ses_email.json
-             
-             # Send email using AWS SES
-             aws ses send-email \
-               --cli-input-json file://ses_email.json \
-               --region "${{ secrets.AWS_REGION }}"
-             
-             if [ $? -eq 0 ]; then
-               echo "✅ Email sent successfully via AWS SES!"
-             else
-               echo "❌ Failed to send email via AWS SES."
-               echo "Please check your AWS credentials and SES configuration."
-               echo "Email content has been saved as artifacts for manual sending."
-             fi
-           else
-             echo "⚠️ AWS SES configuration not found. Email content saved as artifacts."
-             echo "To enable AWS SES email sending, add these secrets:"
-             echo "  - AWS_ACCESS_KEY_ID (your AWS access key)"
-             echo "  - AWS_SECRET_ACCESS_KEY (your AWS secret key)"
-             echo "  - AWS_REGION (e.g., us-east-1, eu-west-1)"
-             echo "  - EMAIL_FROM (verified sender email in SES)"
-             echo "  - EMAIL_TO (recipient email)"
-             echo ""
-             echo "Note: Make sure your sender email is verified in AWS SES."
-           fi
+
+          echo "From: $GMAIL_USERNAME" > email_message.txt
+          echo "To: $EMAIL_TO" >> email_message.txt
+          echo "Subject: $SUBJECT" >> email_message.txt
+          echo "MIME-Version: 1.0" >> email_message.txt
+          echo "Content-Type: text/html; charset=UTF-8" >> email_message.txt
+          echo "" >> email_message.txt
+          echo "$HTML_CONTENT" >> email_message.txt
+
+          # Handle multiple recipients
+          IFS=',' read -ra ADDR <<< "$EMAIL_TO"
+          RCPT_ARGS=""
+          for RECIPIENT in "${ADDR[@]}"; do
+            RCPT_ARGS="$RCPT_ARGS --mail-rcpt $RECIPIENT"
+          done
+
+          eval curl -v --mail-from "$GMAIL_USERNAME" \
+               $RCPT_ARGS \
+               --upload-file email_message.txt \
+               --ssl-reqd \
+               --user "$GMAIL_USERNAME:$GMAIL_APP_PASSWORD" \
+               smtp://smtp.gmail.com:587
+
+          if [ $? -eq 0 ]; then
+            echo "✅ Email sent successfully from Gmail!"
+          else
+            echo "❌ Failed to send email from Gmail."
+            echo "See: https://support.google.com/accounts/answer/185833"
+          fi
 
       - name: Save Email Content as Artifact
         if: always()
