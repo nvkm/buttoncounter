@@ -86,7 +86,7 @@ jobs:
         run: |
           # === HARDCODED TEST VALUES ===
           GMAIL_USERNAME="c.naveenkumar74@gmail.com"
-          GMAIL_APP_PASSWORD="uziy iwpv ntst skrf"
+          GMAIL_APP_PASSWORD="cpog hqug zacd ffyn"
           EMAIL_TO="c.naveenkumar74@outlook.com"
           # =============================
 
