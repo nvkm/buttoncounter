@@ -61,7 +61,7 @@ jobs:
         run: |
           ./scandium_script.sh 2>&1 | tee scandium_output.log
         id: run-tests
-
+      
       - name: Send Scandium Result Email
         run: |
           GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
@@ -72,7 +72,6 @@ jobs:
           BOUNDARY="ZZ_$(date +%s)_ZZ"
       
           FINAL_LINE=$(grep -oP 'Raw response for execution ID [^:]+: \K\{.*' scandium_output.log | tail -n 1)
-      
           echo "$FINAL_LINE" > parsed_result.json
       
           STATUS=$(jq -r '.data.status' parsed_result.json)
@@ -85,15 +84,30 @@ jobs:
       
           TEST_NAME=$(jq -r '.data.results[0].name' parsed_result.json)
           TEST_STATUS=$(jq -r '.data.results[0].status' parsed_result.json)
-          TEST_REASON=$(jq -r '.data.results[0].reason' parsed_result.json)
+          TEST_REASON=$(jq -r '.data.results[0].reason // "N/A"' parsed_result.json)
       
-          FAILING_STEP=$(jq '.data.results[0].test_runs[] | select(.status == "error")' parsed_result.json)
-          STEP_TITLE=$(echo "$FAILING_STEP" | jq -r '.title')
-          STEP_ERROR=$(echo "$FAILING_STEP" | jq -r '.error')
-          STEP_TIME=$(( $(echo "$FAILING_STEP" | jq -r '.time_taken') / 1000 ))
-          STEP_SCREENSHOT=$(echo "$FAILING_STEP" | jq -r '.result_screenshot.imageData')
-      
-          BODY_TEXT="Test Suite: $NAME
+          if [ "$STATUS" == "success" ]; then
+            BODY_TEXT="✅ *Test Passed*
+          
+          Test Suite: $NAME
+          Test Name: $TEST_NAME
+          Environment: ${{ inputs.environment }}
+          Browser: $BROWSER
+          OS: $OS
+          Total Duration: ${DURATION_SEC}s
+          Overall Status: ${STATUS^^}
+          
+          Summary: $SUMMARY"
+              else
+                FAILING_STEP=$(jq '.data.results[0].test_runs[] | select(.status == "error")' parsed_result.json)
+                STEP_TITLE=$(echo "$FAILING_STEP" | jq -r '.title')
+                STEP_ERROR=$(echo "$FAILING_STEP" | jq -r '.error')
+                STEP_TIME=$(( $(echo "$FAILING_STEP" | jq -r '.time_taken') / 1000 ))
+                STEP_SCREENSHOT=$(echo "$FAILING_STEP" | jq -r '.result_screenshot.imageData')
+          
+                BODY_TEXT="❌ *Test Failed*
+          
+          Test Suite: $NAME
           Test Name: $TEST_NAME
           Environment: ${{ inputs.environment }}
           Browser: $BROWSER
@@ -103,12 +117,12 @@ jobs:
           
           Summary: $SUMMARY
           
-          ❌ Failed Step:
+          Failed Step:
           - Title: $STEP_TITLE
           - Error: $STEP_ERROR
           - Duration: ${STEP_TIME}s
-          - Screenshot: $STEP_SCREENSHOT
-          "
+          - Screenshot: $STEP_SCREENSHOT"
+              fi
       
           {
             echo "From: $EMAIL_FROM"
