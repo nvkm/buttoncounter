@@ -62,18 +62,6 @@ jobs:
           ./scandium_script.sh 2>&1 | tee scandium_output.log
         id: run-tests
 
-      - name: Save Email Content as Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scandium-email-content
-          path: |
-            email_content.html
-            email_subject.txt
-            email_message.txt
-            failed_tests.html
-            scandium_output.log
-
       - name: Generate Enhanced Email Content from Final Results
         if: always()
         run: |
@@ -298,9 +286,9 @@ jobs:
 
       - name: Send Enhanced Email via Gmail SMTP
         run: |
-          GMAIL_USERNAME="${{ secrets.GMAIL_USERNAME }}"
-          GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
-          EMAIL_TO="${{ secrets.EMAIL_TO }}"
+          GMAIL_USERNAME=${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO=${{ secrets.EMAIL_TO }}
 
           # Read the subject and HTML content
           SUBJECT=$(cat email_subject.txt)
@@ -363,8 +351,20 @@ jobs:
             echo "- EMAIL_TO: Recipient email address"
           fi
 
+      - name: Save Email Content as Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scandium-email-content
+          path: |
+            email_content.html
+            email_subject.txt
+            email_message.txt
+            failed_tests.html
+            scandium_output.log
+
       - name: Cleanup Temporary Files
         if: always()
         run: |
-          rm -f email_content.html email_subject.txt email_message.txt failed_tests.html temp_results.json temp_steps.json
-          echo "🧹 Temporary email files cleaned up"
+          rm -f temp_results.json temp_steps.json
+          echo "🧹 Temporary processing files cleaned up"
